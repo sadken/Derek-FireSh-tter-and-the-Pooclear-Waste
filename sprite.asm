@@ -22,14 +22,18 @@ SCREEN = &3000
 MAXTILE = &04
 STARTX = &0A
 STARTY = &C8
+STARTACC = &02
+STARTVEL = &00
 
 
 ORG &0070
 .addr			SKIP 2
+.addrtemp		SKIP 2
 .temp			SKIP 1
 .temp2			SKIP 1
 .depth			SKIP 1
 .offset			SKIP 1
+.leveltemp		SKIP 2	
 .rowcounter		SKIP 1
 .shape			SKIP 2
 .counter		SKIP 1
@@ -37,51 +41,105 @@ ORG &0070
 .ypos			SKIP 1
 .oxpos			SKIP 1
 .oypos			SKIP 1
-.addrtemp		SKIP 2
+.restartx		SKIP 1
+.plyacc			SKIP 1
+.plyvel			SKIP 1
 .currenttile	SKIP 2
 .levelpos		SKIP 1
 .leveladdr		SKIP 2
 .tilecolumn		SKIP 1
 .collision		SKIP 1
 .colloffset		SKIP 1
-.snd			SKIP 8
-
+.framecount		SKIP 1
+.sysirq			SKIP 2
+.time			SKIP 1
 
 org &1100
 .START
-	JSR initnoise
+.init
+	\SEI
+	\LDA &204
+	\STA sysirq
+	\LDA &205
+	\STA sysirq+1
+	\LDA #LO(irq)
+	\STA &204
+	\LDA #HI(irq)
+	\STA &205
+	\LDA #&08
+	\STA time
+	CLI
 	JSR initscreen
 	JSR clearlevel
-	JSR drawlevel
 	JSR initgame
+	JSR drawlevel
 .gameloop
-	JSR moveplayer
+	LDA xpos
+	STA oxpos
+	LDA ypos
+	STA oypos
+	INC framecount
+	LDA framecount
+	CMP #&03
+	BNE skipupdate
+	JSR updateplayer
+	LDA #00
+	STA framecount
+.skipupdate
+	JSR checkkeys
 	JSR checkhit
 	LDA collision
 	BNE	playerdead
-	LDA xpos
-	CMP oxpos
-	BNE redraw
-	LDA ypos
-	CMP oypos
-	BEQ gameloop
 .redraw
 	JSR vsync
-	LDX xpos
-	LDY ypos
-	JSR drawsprite
 	LDX oxpos
 	LDY oypos
 	JSR drawsprite
+	LDX xpos
+	LDY ypos
+	JSR drawsprite	
+	LDA ypos
+	CMP #&0A
+	BEQ bottomlevelexit
 	JMP gameloop
-.playerdead
-	JSR makenoise
+.bottomlevelexit
+	LDA xpos
+	STA restartx
+	JSR levelnoise
+	LDA leveltemp
+	CLC
+	ADC #&46
+	STA leveltemp
+	LDA leveltemp+1
+	ADC #&00
+	STA leveltemp+1
+	JSR restartlevel
+	JMP gameloop
+	
+.restartlevel
+	LDA #STARTACC
+	STA plyacc
+	LDA #STARTVEL
+	STA plyvel
+	LDA #STARTY
+	STA ypos
 	JSR clearlevel
 	JSR drawlevel
-	JSR initgame
+	LDX xpos
+	LDY ypos
+	JSR drawsprite
+	RTS 
+	
+.playerdead
+	JSR dienoise
+	LDA restartx
+	STA xpos
+	JSR restartlevel
 	JMP gameloop
 
 .checkhit
+	LDA #00
+	STA collision
 	LDX xpos	
 	LDY ypos
 	JSR collisiondetect
@@ -108,128 +166,98 @@ org &1100
 	JSR collisiondetect
 	RTS
 	
+.updateplayer
+	DEC plyacc
+	LDA plyacc
+	BPL calcvel
+	CMP #&FF
+	BCS calcvel
+	LDA #&FF
+	STA plyacc
+.calcvel
+	LDA plyacc
+	CLC
+	ADC plyvel
+	BPL calcypos
+	CMP #&FD
+	BCS calcypos
+	LDA #&FD
+.calcypos
+	STA plyvel
+	LDA ypos
+	CLC
+	ADC plyvel
+	CMP #&DC
+	BCC allowup
+	LDA #&DC
+.allowup
+	CMP #&0A
+	BCS allowdown
+	LDA #&0A
+.allowdown
+	STA ypos
+	RTS
 	
 \*Check Keypress
 .inkey
-	PHA
-	TYA
-	PHA
 	LDY #&FF
 	LDA #&81
 	JSR OSBYTE
-	PLA
-	TAY
-	PLA
 	CPX #&00
 	RTS
+	
 \*Move Player Routine
-.moveplayer
-	LDA #00
-	STA collision		\\Clear Previous Collision 
-	LDA xpos
-	STA oxpos
-	LDA ypos
-	STA oypos
+.checkkeys
+
 .checkright
 	LDX #&BD
-	JSR inkey
+	LDY #&FF
+	LDA #&81
+	JSR OSBYTE
+	CPX #&00
 	BEQ checkleft
 	INC xpos
-	\LDA xpos
-	\CLC
-	\ADC #&03
-	\TAX
-	\LDA ypos
-	\SEC
-	\SBC #&04
-	\TAY
-	\JSR collisiondetect
-	\LDA collision
-	\BEQ nohitright
-	\LDA oxpos
-	\STA xpos
-\.nohitright
-	LDA xpos
-	CMP	#&4B
-	BCC	checkup
-	LDA	#&4B
-	STA xpos
-	JMP checkup
 .checkleft
 	LDX #&9E
-	JSR inkey
+	LDY #&FF
+	LDA #&81
+	JSR OSBYTE
+	CPX #&00
 	BEQ checkup
 	DEC xpos
-	\LDX xpos
-	\LDA ypos
-	\SEC
-	\SBC #&04
-	\TAY
-	\JSR collisiondetect
-	\LDA collision
-	\BEQ nohitleft
-	\LDA oxpos
-	\STA xpos
-\.nohitleft
-	LDA xpos
-	BPL checkup
-	LDA #&00
-	STA xpos
 .checkup
 	LDX #&B7
-	JSR inkey
+	LDY #&FF
+	LDA #&81
+	JSR OSBYTE
+	CPX #&00
 	BEQ checkdown
-	INC ypos
-	INC ypos
-	INC ypos
-	INC ypos
-	\LDY ypos
-	\LDA xpos
-	\CLC
-	\ADC #&02
-	\TAX
-	\JSR collisiondetect
-	\LDA collision
-	\BEQ nohitup
-	\LDA oypos
-	\STA ypos
-\.nohitup
-	LDA ypos
-	CMP #&DC
-	BCC nobutton
-	LDA #&DC
-	STA ypos
-	JMP nobutton
+	LDA #&02
+	STA plyacc
+	JSR thrustnoise
 .checkdown
 	LDX #&97
-	JSR inkey
+	LDY #&FF
+	LDA #&81
+	JSR OSBYTE
+	CPX #&00
 	BEQ nobutton
-	DEC ypos
-	DEC ypos
-	DEC ypos
-	DEC ypos
-	\LDA ypos
-	\SEC
-	\SBC #&08
-	\TAY
-	\LDA xpos
-	\CLC
-	\ADC #&02
-	\TAX
-	\JSR collisiondetect
-	\LDA collision
-	\BEQ nohitdown
-	\LDA oypos
-	\STA ypos
-\.nohitdown
-	LDA ypos
-	CMP #&0A
-	BCS nobutton
-	LDA #&0A
-	STA ypos
 .nobutton
 	RTS
-	
+
+	\* Sprite Drawing Routine 
+.erasesprite
+	JSR getaddr
+	LDA #LO(SPRITE)
+	STA shape
+	LDA #HI(SPRITE)
+	STA shape+1
+	LDA #&20
+	STA counter
+	LDA #&08
+	STA depth
+	JSR doplot
+	RTS
 \* Sprite Drawing Routine 
 .drawsprite
 	JSR getaddr
@@ -237,7 +265,7 @@ org &1100
 	STA shape
 	LDA #HI(SPRITE)
 	STA shape+1
-	LDA #&20
+	LDA #&04
 	STA counter
 	LDA #&08
 	STA depth
@@ -397,10 +425,6 @@ org &1100
 	LDA #&00
 	STA levelpos		\\reset to first tile of level
 	LDX levelpos		\\load first level byte
-	LDA LEVEL,X
-	AND #&0F
-	TAX 
-	JSR settileaddr
 	LDA #LO(SCREEN+2560)		\\reset screen address (Low Byte)
 	STA addr
 	LDA #HI(SCREEN+2560)		\\reset screen address (high byte)
@@ -410,12 +434,12 @@ org &1100
 	STA tilecolumn		\\reset tile column count
 .levelloop
 	STY levelpos		\\load level position
-	LDA LEVEL,Y			\\load byte from level table at levelpos
+	LDA (leveltemp),Y		\\load byte from level table at levelpos
 	AND #&F0			\\mask high nibble
-	ROR A	
-	ROR A
-	ROR A
-	ROR A				\\shift right 4 bits
+	LSR A	
+	LSR A
+	LSR A
+	LSR A				\\shift right 4 bits
 	BNE drawblock1		\\check for non zero tile, and draw 4 tiles if not blank (4 copies of read tile to reduce level memory)
 	JSR nexttile		\\skip forward 2 tiles (to compensate for non drawn tiles)
 	JSR nexttile
@@ -429,7 +453,7 @@ org &1100
 	JSR nexttile
 .startblock2
 	LDY levelpos		\\re-load level position
-	LDA LEVEL,Y			\\grab tile byte
+	LDA (leveltemp),Y			\\grab tile byte
 	AND #&0F			\\mask low nibble
 	BNE drawblock2		\\check for zero tile
 	JSR nexttile		\\skip forward 2 tiles (to compensate for non drawn tiles)
@@ -514,42 +538,53 @@ org &1100
 	STA addr+1
 	RTS	
 
-.initnoise
-	LDA #1       ;Initialise sound - channel 1, amplitude -15, pitch 200, duration 1
-	STA snd
-	LDA #0
-	STA snd+1
-	LDA #$F1
-	STA snd+2
-	LDA #$FF
-	STA snd+3
-	LDA #$34
-	STA snd+4
-	LDA #0
-	STA snd+5
-	LDA #&01
-	STA snd+6
-	LDA #0
-	STA snd+7
-	RTS
-.makenoise
+\\sound playing routine 
+.dienoise
 	LDA #&34
-	STA snd+4
+	STA diesnd+4
 	LDA #&08
 	STA temp
-.noiseloop
-	LDX #LO(snd)
-	LDY #HI(snd)
+.dienoiseloop
+	LDX #LO(diesnd)
+	LDY #HI(diesnd)
 	LDA #&07
 	JSR OSWORD
-	LDX snd+4
+	LDX diesnd+4
 	DEX
 	DEX
 	DEX
-	STX snd+4
+	STX diesnd+4
 	DEC temp
 	LDA temp
-	BNE noiseloop
+	BNE dienoiseloop
+	RTS
+	
+.thrustnoise
+	LDX #LO(thrustsnd)
+	LDY #HI(thrustsnd)
+	LDA #&07
+	JSR OSWORD
+	RTS
+
+.levelnoise
+	LDA #&34
+	STA levelsnd+4
+	LDX #LO(levelsnd)
+	LDY #HI(levelsnd)
+	LDA #&07
+	JSR OSWORD
+	LDA #&88
+	STA levelsnd+4
+	LDX #LO(levelsnd)
+	LDY #HI(levelsnd)
+	LDA #&07
+	JSR OSWORD
+	LDA #&17
+	STA levelsnd+4
+	LDX #LO(levelsnd)
+	LDY #HI(levelsnd)
+	LDA #&07
+	JSR OSWORD
 	RTS
 	
 \* Level covers 160 pixels x 112 pixels
@@ -590,19 +625,20 @@ org &1100
 	LDA temp
 	AND #01
 	BEQ highnibble
-	LDX colloffset
-	LDA LEVEL, X
+	LDY colloffset
+	LDA (leveltemp), Y
 	AND #&0F	
 	JMP finishcollision
 .highnibble
-	LDX colloffset
-	LDA LEVEL, X
+	LDY colloffset
+	LDA (leveltemp), Y
 	AND #&F0
 .finishcollision
 	BEQ nocollision
 	INC collision
 .nocollision
 	RTS
+	
 \* initialise screen 	
 .initscreen
 	LDA #22
@@ -625,14 +661,66 @@ org &1100
 	RTS
 	
 .initgame
+	LDA #00
+	STA framecount
+	LDA #LO(LEVEL)
+	STA leveltemp
+	LDA #HI(LEVEL)
+	STA leveltemp+1
+	LDA #STARTACC
+	STA plyacc
+	LDA #STARTVEL
+	STA plyvel
 	LDA #STARTX
 	STA xpos
+	STA restartx
 	LDA #STARTY
 	STA ypos
 	LDX xpos
 	LDY ypos
 	JSR drawsprite
 	RTS
+	
+.irq
+	SEI
+	TXA 
+	PHA
+	TYA
+	PHA
+	LDA #&40
+	BIT &FE4D
+	BNE irq1
+.exit
+	PLA
+	TAY
+	PLA
+	TAX
+	JMP (sysirq)
+.irq1
+	DEC time
+	BNE exit
+	JSR updateplayer
+	LDA #&08
+	STA time
+	JMP exit
+	
+.diesnd
+	EQUB	&01, &00		\\Channel	1
+	EQUB 	&F1, &FF		\\Amplitude	-15
+	EQUB	&34, &00		\\Pitch	52
+	EQUB	&01, &00		\\Duration 1
+	
+.thrustsnd
+	EQUB	&10, &00		\\Channel 16
+	EQUB 	&F1, &FF		\\Amplitude -15
+	EQUB	&06, &00		\\Pitch 800
+	EQUB	&03, &00		\\Duration 1
+	
+.levelsnd
+	EQUB	&03, &00		\\Channel 3
+	EQUB 	&F1, &FF		\\Amplitude -15
+	EQUB	&06, &00		\\Pitch 800
+	EQUB	&01, &00		\\Duration 1
 	
 org SPRITE
 INCBIN ".\sprites\ship.bin"			\\sprite data
