@@ -1,0 +1,16 @@
+poo1_offset = &0
+poo1_size = &20
+poo1_width = &4
+poo1_height = &8
+poo2_offset = &20
+poo2_size = &20
+poo2_width = &4
+poo2_height = &8
+poo3_offset = &40
+poo3_size = &20
+poo3_width = &4
+poo3_height = &8
+poo4_offset = &60
+poo4_size = &20
+poo4_width = &4
+poo4_height = &8

@@ -16,8 +16,9 @@ OSBYTE = &FFF4
 OSWORD = &FFF1
 OSWRCH = &FFEE
 SPRITE = &2000
-TILES = &2100
-LEVEL = &2200
+POOP = &2100
+TILES = &2200
+LEVEL = &2300
 SCREEN = &3000
 MAXTILE = &04
 STARTX = &0A
@@ -41,18 +42,14 @@ ORG &0070
 .ypos			SKIP 1
 .oxpos			SKIP 1
 .oypos			SKIP 1
-.restartx		SKIP 1
-.plyacc			SKIP 1
-.plyvel			SKIP 1
-.currenttile	SKIP 2
-.levelpos		SKIP 1
-.leveladdr		SKIP 2
-.tilecolumn		SKIP 1
 .collision		SKIP 1
 .colloffset		SKIP 1
 .framecount		SKIP 1
-.sysirq			SKIP 2
 .time			SKIP 1
+.currenttile	SKIP 2
+.spriteaddr		SKIP 2
+.spritetabaddr	SKIP 2
+.spritetabindex	SKIP 1
 
 org &1100
 .START
@@ -95,6 +92,7 @@ org &1100
 	LDX oxpos
 	LDY oypos
 	JSR drawsprite
+	JSR updatesprite
 	LDX xpos
 	LDY ypos
 	JSR drawsprite	
@@ -115,6 +113,45 @@ org &1100
 	STA leveltemp+1
 	JSR restartlevel
 	JMP gameloop
+
+.playerdead
+	JSR dienoise
+	LDA restartx
+	STA xpos
+	JSR restartlevel
+	JMP gameloop
+	
+.updatesprite
+	LDA plyvel
+	BPL	goingup
+	LDA #LO(playerdowntab)
+	STA spritetabaddr
+	LDA #HI(playerdowntab)
+	STA spritetabaddr+1
+	JMP runspriteupdate
+.goingup
+	LDA #LO(playeruptab)
+	STA spritetabaddr
+	LDA #HI(playeruptab)
+	STA spritetabaddr+1
+.runspriteupdate
+	LDA framecount
+	BNE skipspriteupdate
+	INC spritetabindex
+	LDA spritetabindex
+	CMP #&02
+	BCC tabok
+	LDA #&00
+	STA spritetabindex
+.tabok
+	TAY
+	LDA (spritetabaddr),y
+	STA spriteaddr
+	INY
+	LDA #&20
+	STA spriteaddr+1
+.skipspriteupdate
+	RTS
 	
 .restartlevel
 	LDA #STARTACC
@@ -129,13 +166,6 @@ org &1100
 	LDY ypos
 	JSR drawsprite
 	RTS 
-	
-.playerdead
-	JSR dienoise
-	LDA restartx
-	STA xpos
-	JSR restartlevel
-	JMP gameloop
 
 .checkhit
 	LDA #00
@@ -245,25 +275,13 @@ org &1100
 .nobutton
 	RTS
 
-	\* Sprite Drawing Routine 
-.erasesprite
-	JSR getaddr
-	LDA #LO(SPRITE)
-	STA shape
-	LDA #HI(SPRITE)
-	STA shape+1
-	LDA #&20
-	STA counter
-	LDA #&08
-	STA depth
-	JSR doplot
-	RTS
+	
 \* Sprite Drawing Routine 
 .drawsprite
 	JSR getaddr
-	LDA #LO(SPRITE)
+	LDA spriteaddr
 	STA shape
-	LDA #HI(SPRITE)
+	LDA spriteaddr+1
 	STA shape+1
 	LDA #&04
 	STA counter
@@ -540,10 +558,14 @@ org &1100
 
 \\sound playing routine 
 .dienoise
+	LDA #LO(playerdietab)
+	STA spritetabaddr
+	LDA #HI(playerdietab)
+	STA spritetabaddr+1
 	LDA #&34
 	STA diesnd+4
-	LDA #&08
-	STA temp
+	LDA #&0F
+	STA noisetemp
 .dienoiseloop
 	LDX #LO(diesnd)
 	LDY #HI(diesnd)
@@ -554,8 +576,28 @@ org &1100
 	DEX
 	DEX
 	STX diesnd+4
-	DEC temp
-	LDA temp
+	JSR vsync
+	JSR vsync
+	LDX oxpos
+	LDY oypos
+	JSR drawsprite
+	LDA noisetemp
+	LSR A
+	LSR A
+	TAY
+	LDA (spritetabaddr),y
+	STA spriteaddr
+	LDA #&20
+	STA spriteaddr+1
+	LDX xpos
+	LDY ypos
+	JSR drawsprite		
+	LDA xpos
+	STA oxpos
+	LDA ypos
+	STA oypos
+	DEC noisetemp
+	LDA noisetemp
 	BNE dienoiseloop
 	RTS
 	
@@ -661,7 +703,16 @@ org &1100
 	RTS
 	
 .initgame
+	LDA #LO(playeruptab)
+	STA spritetabaddr
+	LDA #HI(playeruptab)
+	STA spritetabaddr+1
+	LDA #LO(SPRITE)
+	STA spriteaddr
+	LDA #HI(SPRITE)
+	STA spriteaddr+1
 	LDA #00
+	STA spritetabindex
 	STA framecount
 	LDA #LO(LEVEL)
 	STA leveltemp
@@ -699,7 +750,7 @@ org &1100
 .irq1
 	DEC time
 	BNE exit
-	JSR updateplayer
+	\JSR updateplayer
 	LDA #&08
 	STA time
 	JMP exit
@@ -721,12 +772,45 @@ org &1100
 	EQUB 	&F1, &FF		\\Amplitude -15
 	EQUB	&06, &00		\\Pitch 800
 	EQUB	&01, &00		\\Duration 1
-	
+
+.vars
+
+.restartx		SKIP 1
+.sysirq			SKIP 2
+.plyacc			SKIP 1
+.plyvel			SKIP 1
+.levelpos		SKIP 1
+.leveladdr		SKIP 2
+.tilecolumn		SKIP 1
+.noisetemp		SKIP 1
+
+.tables
+
+.playeruptab
+	EQUB	LO(SPRITE)
+	EQUB	LO(SPRITE+&20)
+.playerdowntab
+	EQUB	LO(SPRITE+&40)
+	EQUB	LO(SPRITE+&60)
+.playerdietab
+	EQUB	LO(SPRITE+&80)
+	EQUB	LO(SPRITE+&A0)
+	EQUB	LO(SPRITE+&C0)
+	EQUB	LO(SPRITE+&E0)
+.pootab
+	EQUB	LO(POOP), HI(POOP)
+	EQUB 	LO(POOP+&20)
+	EQUB 	LO(POOP+&40)
+	EQUB	LO(POOP+&60)
+
 org SPRITE
-INCBIN ".\sprites\ship.bin"			\\sprite data
+INCBIN ".\sprites\player.bin"	\\Player sprite data
 	
+org POOP
+INCBIN ".\sprites\poop.bin"		\\Poop sprite data
+
 ORG TILES
-INCBIN ".\sprites\wall.bin"		\\sprite data
+INCBIN ".\sprites\wall.bin"		\\Level sprite data
 
 ORG LEVEL
 INCBIN ".\levels\level1.bin"	\\level data
