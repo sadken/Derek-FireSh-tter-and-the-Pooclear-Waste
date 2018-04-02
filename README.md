@@ -1,17 +1,10 @@
-# Unnamed-BBC-Micro-Game
+# Derek FireSh#*tter and the Pooclear Waste
 BBC micro game written in BeebASM
 
-Early stages, currently only have one level laid out to test and a single ship sprite. 
+Almost finished state, level tweaks and collectable positioning need finishing, and could use some housework on the code.
 
-Collision with anything results in death, a generic sound, and level reset. 
+Controls: 
+* Z - LEFT
+* X - RIGHT
+* : - THRUST
 
-ToDo:
-    Add some enemies/collectables
-    Scores
-    Lives
-    Maybe a timer?
-    
-Added:
-    Player Movement (Z - Left; X - Right; * - Thrust)
-    Player animation, varies on vertical movement, or death
-    
